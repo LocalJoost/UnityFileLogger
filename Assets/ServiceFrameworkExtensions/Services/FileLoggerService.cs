@@ -21,13 +21,11 @@ namespace ServiceFrameworkExtensions.Services
             serviceProfile = profile;
         }
 
-        /// <inheritdoc />
         public override void Initialize()
         {
             DeleteOldLogs();
         }
 
-        /// <inheritdoc />
         public override void Start()
         {
             if (serviceProfile.AutoStart)
@@ -59,6 +57,23 @@ namespace ServiceFrameworkExtensions.Services
                 currentLogFile = null;
             }
         }
+        
+        private void LogListener(string logString, string stacktrace, LogType lType)
+        {
+            if ( ShouldLog(logString, lType))
+            {
+                logMessages.Enqueue(GetLogString(logString, stacktrace, lType));
+            }
+        }
+        
+        private string GetLogString(string message, string stacktrace, LogType lType)
+        {
+            var timeStamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            var trace = !string.IsNullOrEmpty(stacktrace) ? 
+                $"StackTrace: {stacktrace}{nl}" : string.Empty;
+            return
+                $"Time: {timeStamp}{nl}Log: {lType}{nl}Msg: {message}{nl}{trace}====={nl}";
+        }
 
         public override void Update()
         {
@@ -69,6 +84,30 @@ namespace ServiceFrameworkExtensions.Services
             }
         }
 
+        private StreamWriter LogFile
+        {
+            get
+            {
+                if (currentLogFile == null)
+                {
+                    var logFilePath = Path.Combine(Application.persistentDataPath,
+                        $"{serviceProfile.LogFilePrefix}{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.log");
+                    currentLogFile = new StreamWriter(
+                        new FileStream(logFilePath, FileMode.Append, FileAccess.Write));
+                    currentLogFile.AutoFlush = true;
+                }
+
+                return currentLogFile;
+            }
+        }
+
+        private bool ShouldLog(string logString, LogType lType)
+        {
+            var logTypeFlagInt = 1 << (int)lType;
+            return ((int)serviceProfile.LogTypes & logTypeFlagInt) != 0 &&
+                   !serviceProfile.FilterPhrases.Any(logString.Contains);
+        }
+        
         private void DeleteOldLogs()
         {
             foreach (var file in GetOldLogFilesToDelete())
@@ -90,46 +129,6 @@ namespace ServiceFrameworkExtensions.Services
                 $"{serviceProfile.LogFilePrefix}*.log").Where(file =>
                 Math.Abs((DateTimeOffset.Now - File.GetCreationTime(file)).Days) >
                 serviceProfile.RetainDays);
-        }
-
-        private StreamWriter LogFile
-        {
-            get
-            {
-                if (currentLogFile == null)
-                {
-                    var logFilePath = Path.Combine(Application.persistentDataPath,
-                        $"{serviceProfile.LogFilePrefix}{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.log");
-                    currentLogFile = new StreamWriter(
-                        new FileStream(logFilePath, FileMode.Append, FileAccess.Write));
-                    currentLogFile.AutoFlush = true;
-                }
-
-                return currentLogFile;
-            }
-        }
-
-        private void LogListener(string logString, string stacktrace, LogType lType)
-        {
-            if ( ShouldLog(logString, lType))
-            {
-                logMessages.Enqueue(GetLogString(logString, stacktrace, lType));
-            }
-        }
-
-        private bool ShouldLog(string logString,LogType lType)
-        {
-            var logTypeFlagInt = 1 << (int)lType;
-            return ((int)serviceProfile.LogTypes & logTypeFlagInt) != 0 &&
-                   !serviceProfile.FilterPhrases.Any(logString.Contains);
-        }
-        private string GetLogString(string message, string stacktrace, LogType lType)
-        {
-            var timeStamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff");
-            var trace = !string.IsNullOrEmpty(stacktrace) ? 
-                $"StackTrace: {stacktrace}{nl}" : string.Empty;
-            return
-                $"Time: {timeStamp}{nl}Log: {lType}{nl}Msg: {message}{nl}{trace}====={nl}";
         }
     }
 }
